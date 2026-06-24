@@ -295,12 +295,24 @@ function getDataUrl() {
   return params.get("data") || null;
 }
 
+async function fetchWithCORSFallback(url) {
+  // Try direct fetch first
+  try {
+    const resp = await fetch(url);
+    if (resp.ok) return await resp.json();
+  } catch (_) {}
+
+  // CORS blocked — retry through a proxy
+  const proxy = `https://corsproxy.io/?url=${encodeURIComponent(url)}`;
+  const resp = await fetch(proxy);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} via proxy`);
+  return await resp.json();
+}
+
 async function loadAndRender(url) {
   let geojson;
   try {
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    geojson = await resp.json();
+    geojson = await fetchWithCORSFallback(url);
   } catch (err) {
     document.getElementById("overlay").textContent = `Failed to load data: ${err.message}`;
     return;
