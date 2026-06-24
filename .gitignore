@@ -1,0 +1,19 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Samsara Functions runtime
+.samsara-functions/
+functions/*/dist/
+functions/*/config/.secrets.json
+functions/*/config/.secrets.local.json
+functions/*/config/params*.local.json
+
+# Generated data files — do not commit
+*.csv
+diagnostics.csv
+vehicles.csv
+
+# Secrets — never commit
+.env

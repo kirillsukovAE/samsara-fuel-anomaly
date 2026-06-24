@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fuel Anomaly Map</title>
+
+  <!-- Leaflet -->
+  <link  rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 20px;
+      background: #1a1d27;
+      border-bottom: 1px solid #2d3148;
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 1rem; font-weight: 600; letter-spacing: 0.02em; }
+    #stats {
+      margin-left: auto;
+      display: flex;
+      gap: 16px;
+      font-size: 0.8rem;
+      color: #94a3b8;
+    }
+    #stats span { white-space: nowrap; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-weight: 600;
+      font-size: 0.75rem;
+    }
+    .badge-critical { background: #7f1d1d; color: #fca5a5; }
+    .badge-warning  { background: #78350f; color: #fcd34d; }
+    .badge-drop     { background: #1e3a5f; color: #93c5fd; }
+
+    /* ── Layout ── */
+    .body {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      width: 320px;
+      flex-shrink: 0;
+      background: #1a1d27;
+      border-right: 1px solid #2d3148;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #sidebar-header {
+      padding: 12px 16px;
+      font-size: 0.75rem;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      border-bottom: 1px solid #2d3148;
+    }
+    #anomaly-list {
+      overflow-y: auto;
+      flex: 1;
+    }
+    .anomaly-item {
+      padding: 12px 16px;
+      border-bottom: 1px solid #1e2133;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .anomaly-item:hover  { background: #222638; }
+    .anomaly-item.active { background: #283046; }
+    .anomaly-item .vname {
+      font-size: 0.85rem;
+      font-weight: 500;
+      margin-bottom: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .anomaly-item .meta {
+      font-size: 0.73rem;
+      color: #64748b;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .anomaly-item .meta .z { color: #f59e0b; font-weight: 600; }
+
+    /* ── Map ── */
+    #map {
+      flex: 1;
+    }
+
+    /* ── Loading / Error overlay ── */
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(15, 17, 23, 0.85);
+      z-index: 9999;
+      font-size: 1rem;
+      color: #94a3b8;
+    }
+    #overlay.hidden { display: none; }
+
+    /* ── Leaflet popup overrides ── */
+    .leaflet-popup-content-wrapper {
+      background: #1e2133;
+      color: #e2e8f0;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+    }
+    .leaflet-popup-tip { background: #1e2133; }
+    .popup-title { font-weight: 600; font-size: 0.9rem; margin-bottom: 8px; }
+    .popup-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.78rem;
+      padding: 2px 0;
+      border-bottom: 1px solid #2d3148;
+      gap: 12px;
+    }
+    .popup-row:last-child { border-bottom: none; }
+    .popup-row .lbl { color: #64748b; }
+    .popup-row .val { font-weight: 500; text-align: right; }
+    .popup-row .val.critical { color: #f87171; }
+    .popup-row .val.warning  { color: #fbbf24; }
+    .popup-row .val.drop     { color: #60a5fa; }
+  </style>
+</head>
+<body>
+
+<div id="overlay">Loading anomaly data…</div>
+
+<header>
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2">
+    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+  </svg>
+  <h1>Fuel Anomaly Detector</h1>
+  <div id="stats">
+    <span id="stat-total">—</span>
+    <span id="stat-critical">—</span>
+    <span id="stat-warning">—</span>
+    <span id="stat-drops">—</span>
+  </div>
+</header>
+
+<div class="body">
+  <div id="sidebar">
+    <div id="sidebar-header">Anomaly Events</div>
+    <div id="anomaly-list"></div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Map initialisation
+// ---------------------------------------------------------------------------
+const map = L.map("map", {
+  center: [39.5, -98.35],
+  zoom: 4,
+  preferCanvas: true,
+});
+
+L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+  attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+  maxZoom: 19,
+}).addTo(map);
+
+// ---------------------------------------------------------------------------
+// Colour helpers
+// ---------------------------------------------------------------------------
+const COLOURS = {
+  critical: "#ef4444",
+  warning:  "#f59e0b",
+  sudden_drop: "#3b82f6",
+};
+
+function markerColour(feature) {
+  const p = feature.properties;
+  if (p.reason === "sudden_drop") return COLOURS.sudden_drop;
+  return p.severity === "critical" ? COLOURS.critical : COLOURS.warning;
+}
+
+function circleMarker(latlng, colour) {
+  return L.circleMarker(latlng, {
+    radius: 7,
+    fillColor: colour,
+    color: "#fff",
+    weight: 1.5,
+    opacity: 0.9,
+    fillOpacity: 0.85,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Popup content
+// ---------------------------------------------------------------------------
+function buildPopup(p) {
+  const sevClass = p.reason === "sudden_drop" ? "drop"
+                 : p.severity === "critical"  ? "critical" : "warning";
+  const sevLabel = p.reason === "sudden_drop" ? "Sudden Drop"
+                 : p.severity === "critical"  ? "Critical"  : "Warning";
+
+  const rows = [
+    ["Vehicle",     p.vehicle_name],
+    ["Time",        new Date(p.time).toLocaleString()],
+    ["Severity",    `<span class="val ${sevClass}">${sevLabel}</span>`],
+    ["Reason",      p.reason === "sudden_drop" ? "Fuel drop detected" : "High consumption"],
+    ["Fuel Δ",      `${(p.fuel_delta_ml / 1000).toFixed(2)} L`],
+  ];
+
+  if (p.reason !== "sudden_drop") {
+    rows.push(
+      ["Efficiency",  `${p.efficiency_ml_per_km.toFixed(1)} ml/km`],
+      ["Baseline",    `${p.baseline_mean.toFixed(1)} ± ${p.baseline_std.toFixed(1)} ml/km`],
+      ["Z-score",     `${p.z_score.toFixed(2)}σ`],
+    );
+  }
+
+  if (p.speed_mph) rows.push(["Speed", `${p.speed_mph.toFixed(1)} mph`]);
+  if (p.address)   rows.push(["Location", p.address]);
+
+  const rowsHtml = rows.map(([lbl, val]) =>
+    `<div class="popup-row">
+       <span class="lbl">${lbl}</span>
+       <span class="val">${val}</span>
+     </div>`
+  ).join("");
+
+  return `<div class="popup-title">Anomaly Event</div>${rowsHtml}`;
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar item
+// ---------------------------------------------------------------------------
+function buildSidebarItem(feature, marker, index) {
+  const p     = feature.properties;
+  const sevClass = p.reason === "sudden_drop" ? "drop"
+                 : p.severity === "critical"  ? "critical" : "warning";
+  const sevLabel = p.reason === "sudden_drop" ? "Drop"
+                 : p.severity === "critical"  ? "Critical" : "Warning";
+
+  const item = document.createElement("div");
+  item.className = "anomaly-item";
+  item.dataset.index = index;
+  item.innerHTML = `
+    <div class="vname">${p.vehicle_name}</div>
+    <div class="meta">
+      <span class="badge badge-${sevClass}">${sevLabel}</span>
+      ${p.reason !== "sudden_drop" ? `<span class="z">${p.z_score.toFixed(1)}σ</span>` : ""}
+      <span>${new Date(p.time).toLocaleTimeString()}</span>
+      ${p.address ? `<span>${p.address.split(",")[0]}</span>` : ""}
+    </div>`;
+
+  item.addEventListener("click", () => {
+    document.querySelectorAll(".anomaly-item").forEach(el => el.classList.remove("active"));
+    item.classList.add("active");
+    const latlng = marker.getLatLng();
+    map.setView(latlng, 14, { animate: true });
+    marker.openPopup();
+  });
+
+  return item;
+}
+
+// ---------------------------------------------------------------------------
+// Load GeoJSON
+// ---------------------------------------------------------------------------
+function getDataUrl() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("data") || null;
+}
+
+async function loadAndRender(url) {
+  let geojson;
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    geojson = await resp.json();
+  } catch (err) {
+    document.getElementById("overlay").textContent = `Failed to load data: ${err.message}`;
+    return;
+  }
+
+  document.getElementById("overlay").classList.add("hidden");
+
+  const features  = geojson.features || [];
+  const list      = document.getElementById("anomaly-list");
+  const markers   = [];
+
+  let nCritical = 0, nWarning = 0, nDrops = 0;
+
+  features.forEach((feature, i) => {
+    const [lng, lat] = feature.geometry.coordinates;
+    const p          = feature.properties;
+    const colour     = markerColour(feature);
+
+    const marker = circleMarker([lat, lng], colour).addTo(map);
+    marker.bindPopup(buildPopup(p), { maxWidth: 280 });
+
+    const item = buildSidebarItem(feature, marker, i);
+    list.appendChild(item);
+    markers.push(marker);
+
+    if (p.reason === "sudden_drop") nDrops++;
+    else if (p.severity === "critical") nCritical++;
+    else nWarning++;
+  });
+
+  // Stats bar
+  document.getElementById("stat-total").textContent    = `${features.length} anomalies`;
+  document.getElementById("stat-critical").innerHTML   =
+    `<span class="badge badge-critical">${nCritical} critical</span>`;
+  document.getElementById("stat-warning").innerHTML    =
+    `<span class="badge badge-warning">${nWarning} warnings</span>`;
+  document.getElementById("stat-drops").innerHTML      =
+    `<span class="badge badge-drop">${nDrops} drops</span>`;
+
+  // Fit map to markers
+  if (markers.length > 0) {
+    const group = L.featureGroup(markers);
+    map.fitBounds(group.getBounds().pad(0.1));
+  }
+
+  // Legend
+  const legend = L.control({ position: "bottomright" });
+  legend.onAdd = () => {
+    const div = L.DomUtil.create("div");
+    div.style.cssText = "background:#1e2133;border:1px solid #2d3148;border-radius:6px;padding:10px 14px;font-size:0.78rem;color:#e2e8f0;line-height:1.8;";
+    div.innerHTML = `
+      <div style="font-weight:600;margin-bottom:6px;">Legend</div>
+      <div><span style="color:#ef4444;">●</span> Critical (>3.75σ)</div>
+      <div><span style="color:#f59e0b;">●</span> Warning (>2.5σ)</div>
+      <div><span style="color:#3b82f6;">●</span> Sudden fuel drop</div>`;
+    return div;
+  };
+  legend.addTo(map);
+}
+
+// ---------------------------------------------------------------------------
+// Bootstrap
+// ---------------------------------------------------------------------------
+const dataUrl = getDataUrl();
+if (dataUrl) {
+  loadAndRender(decodeURIComponent(dataUrl));
+} else {
+  document.getElementById("overlay").innerHTML =
+    `No data URL provided.<br>
+     <small style="font-size:0.8rem;color:#64748b;">
+       Add <code>?data=&lt;geojson_url&gt;</code> to the URL.
+     </small>`;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{
+  "lookback_days": "2",
+  "z_threshold": "2.5",
+  "geojson_key": "anomalies/latest.geojson",
+  "geojson_expiry_secs": "86400"
+}
