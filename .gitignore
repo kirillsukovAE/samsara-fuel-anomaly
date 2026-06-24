@@ -5,7 +5,7 @@ __pycache__/
 
 # Samsara Functions runtime
 .samsara-functions/
-functions/*/dist/
+# functions/*/dist/  # temporarily unignored so zip can be downloaded
 functions/*/config/.secrets.json
 functions/*/config/.secrets.local.json
 functions/*/config/params*.local.json
